@@ -7,7 +7,7 @@ if importlib.util.find_spec('cv2') is None:
     st.stop()
 import cv2
 
-# Check and import mediapipe
+# Check and import mediapipe (if still used)
 if importlib.util.find_spec('mediapipe') is None:
     st.error("Mediapipe is not installed. Please check dependencies.")
     st.stop()
