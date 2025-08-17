@@ -1,4 +1,6 @@
-DrowsyGuard Drowsiness Detection Software
+#DrowsyGuard - Drowsienss Software
+
+Drowsiness Detection Software
 Welcome to DrowsyGuard, a real-time drowsiness detection application built with Streamlit and deployed as a web app. This project uses computer vision techniques, powered by OpenCV and MediaPipe, to monitor eye and facial movements via a webcam to detect signs of drowsiness. It’s designed to enhance safety, particularly for drivers or individuals requiring alertness.
 Features
 
@@ -97,6 +99,8 @@ Acknowledgments
 Built with Streamlit for the web interface.
 Utilizes OpenCV and MediaPipe for computer vision.
 Inspired by the need for real-time alertness monitoring.
+
+This is built by Sivansh Gupta for his idea, DrowsyGuard (documentation of which can be found at his LinkedIn at https://www.linkedin.com/posts/sivansh-gupta_documentation-activity-7333111236601036800-c_zP?utm_source=share&utm_medium=member_desktop&rcm=ACoAADzdHEABAQR3EpOwNY7FWYUWTtAKqS5ESVI)
 
 Contact
 For questions or support, open an issue in this repository or contact the maintainer at drowsguard.technologies@gmail.com.
