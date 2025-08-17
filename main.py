@@ -1,10 +1,23 @@
 import streamlit as st
+import importlib.util
+
+# Check and import cv2
+if importlib.util.find_spec('cv2') is None:
+    st.error("OpenCV (cv2) is not installed. Please check dependencies.")
+    st.stop()
 import cv2
-import time
+
+# Check and import mediapipe
+if importlib.util.find_spec('mediapipe') is None:
+    st.error("Mediapipe is not installed. Please check dependencies.")
+    st.stop()
 import mediapipe as mp
+
+import time
 import math
 import numpy as np
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
+import logging
 
 # Initialize Mediapipe Holistic model
 mp_holistic = mp.solutions.holistic
