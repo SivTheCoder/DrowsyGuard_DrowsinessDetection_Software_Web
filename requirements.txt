@@ -1,4 +1,5 @@
 streamlit==1.40.1
 streamlit-webrtc==0.48.2
 opencv-contrib-python==4.11.0.86
-numpy>=1.26.0,<2.0.0  # Matches opencv-contrib-python's requirement
+numpy>=1.26.0,<2.0.0
+mediapipe==0.10.11  # Matches your local setup and is likely compatible with 3.11

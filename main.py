@@ -7,7 +7,7 @@ if importlib.util.find_spec('cv2') is None:
     st.stop()
 import cv2
 
-# Check and import mediapipe (if still used)
+# Check and import mediapipe
 if importlib.util.find_spec('mediapipe') is None:
     st.error("Mediapipe is not installed. Please check dependencies.")
     st.stop()
@@ -18,6 +18,8 @@ import math
 import numpy as np
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 import logging
+
+# Rest of the code...
 
 # Initialize Mediapipe Holistic model
 mp_holistic = mp.solutions.holistic
