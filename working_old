@@ -16,40 +16,58 @@ import mediapipe as mp
 import time
 import math
 import numpy as np
-import av
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration
 import logging
 
-# ---------- Constants & helpers ----------
+# Rest of the code...
+
+# Initialize Mediapipe Holistic model
 mp_holistic = mp.solutions.holistic
+holistic_model = mp_holistic.Holistic(
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
+# Initialize drawing utilities for drawing landmarks
 mp_drawing = mp.solutions.drawing_utils
 
+# Timing variables
+eye_closed_time = 0  # Time when eyes are detected closed
+countdown_start_time = 0  # Start time of the countdown
+countdown_active = False  # Flag for countdown status
+countdown_duration = 3  # Countdown duration in seconds
+action_triggered = False  # Flag to track if the action is triggered
+drowsiness_counter = 0  # Drowsiness counter
+max_drowsiness = 100  # Maximum value for drowsiness counter
+increment_rate_eye = 10  # Increment per second when eyes closed
+increment_rate_yawn = 5  # Increment per second when yawn detected
+decrement_rate = 1  # Decrement per second when eyes open
+ok_gesture_start_time = 0  # Time when OK gesture is detected
+ok_gesture_duration = 5  # Duration OK gesture must be held (seconds)
+allow_decrement = True  # Flag to control decrementing
+warning_count = 0  # Counter for number of resets
+previousTime = 0  # For FPS calculation
+
 # Sensitivity variables
-EAR_THRESHOLD = 0.29         # Lower value = more sensitive to eye closure
-YAWN_SENSITIVITY = 0.89      # Higher value = more sensitive to yawns
-BASE_YAWN_THRESHOLD = 0.4    # Base threshold for yawn detection
+EAR_THRESHOLD = 0.29  # Lower value = more sensitive to eye closure
+YAWN_SENSITIVITY = 0.89  # Higher value = more sensitive to yawns
+BASE_YAWN_THRESHOLD = 0.4  # Base threshold for yawn detection
 
 # Indices for left and right eyes (from Mediapipe)
 LEFT_EYE_INDICES = [33, 160, 158, 133, 153, 144, 163, 144, 145, 154]
 RIGHT_EYE_INDICES = [362, 385, 387, 263, 373, 380, 384, 385, 386, 367]
 
-# Drowsiness parameters
-countdown_duration = 3
-max_drowsiness = 100
-increment_rate_eye = 10      # per second when eyes closed
-increment_rate_yawn = 5      # per second when yawn detected
-decrement_rate = 1           # per second when eyes open
-ok_gesture_duration = 5      # seconds to hold OK to reset at max
-
 def calculate_mouth_aspect_ratio(landmarks):
     """Calculate the mouth aspect ratio (MAR) to detect yawn."""
-    top_lip = landmarks[13]
-    bottom_lip = landmarks[14]
-    left_corner = landmarks[78]
-    right_corner = landmarks[308]
+    top_lip = landmarks[13]  # Upper lip, just below nose
+    bottom_lip = landmarks[14]  # Lower lip, just above chin
+    left_corner = landmarks[78]  # Left mouth corner
+    right_corner = landmarks[308]  # Right mouth corner
+
     horizontal_distance = math.dist((left_corner.x, left_corner.y), (right_corner.x, right_corner.y))
     vertical_distance = math.dist((top_lip.x, top_lip.y), (bottom_lip.x, bottom_lip.y))
-    return vertical_distance / (horizontal_distance + 1e-6)
+
+    return vertical_distance / horizontal_distance
 
 def calculate_eye_aspect_ratio(landmarks, eye_indices):
     """Calculate the eye aspect ratio (EAR) to detect eye open or close."""
@@ -57,7 +75,8 @@ def calculate_eye_aspect_ratio(landmarks, eye_indices):
     horizontal_distance = math.dist((eye[0].x, eye[0].y), (eye[3].x, eye[3].y))
     vertical_distance_1 = math.dist((eye[1].x, eye[1].y), (eye[5].x, eye[5].y))
     vertical_distance_2 = math.dist((eye[2].x, eye[2].y), (eye[4].x, eye[4].y))
-    return (vertical_distance_1 + vertical_distance_2) / (2.0 * (horizontal_distance + 1e-6))
+    ear = (vertical_distance_1 + vertical_distance_2) / (2.0 * horizontal_distance)
+    return ear
 
 def detect_ok_gesture(hand_landmarks):
     """Detect OK gesture (thumb touching index finger tip, other fingers extended)."""
@@ -78,55 +97,40 @@ def detect_ok_gesture(hand_landmarks):
             ring_wrist_dist > 0.2 and
             pinky_wrist_dist > 0.2)
 
-# ---------- Video Processor ----------
-class VideoProcessor(VideoProcessorBase):
+# Streamlit WebRTC video transformer
+class VideoTransformer(VideoTransformerBase):
     def __init__(self):
-        # Timing / counters
-        self.previousTime = 0.0
-        self.eye_closed_time = 0.0
-        self.countdown_start_time = 0.0
+        self.previousTime = 0
+        self.eye_closed_time = 0
+        self.countdown_start_time = 0
         self.countdown_active = False
         self.action_triggered = False
-        self.drowsiness_counter = 0.0
-        self.ok_gesture_start_time = 0.0
+        self.drowsiness_counter = 0
+        self.ok_gesture_start_time = 0
         self.allow_decrement = True
         self.warning_count = 0
 
-        # Mediapipe model (per-processor, thread-safe)
-        self.holistic = mp_holistic.Holistic(
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+    def transform(self, frame):
+        global eye_closed_time, countdown_start_time, countdown_active, action_triggered
+        global drowsiness_counter, ok_gesture_start_time, allow_decrement, warning_count
+        global previousTime
 
-    def __del__(self):
-        # Ensure resources are released
-        try:
-            self.holistic.close()
-        except Exception:
-            pass
-
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
         img = cv2.resize(img, (800, 600))
-
-        # FPS
-        currentTime = time.time()
-        delta_time = currentTime - self.previousTime if self.previousTime != 0 else 0.033
-        self.previousTime = currentTime
-        fps = 1.0 / delta_time if delta_time > 0 else 0.0
-
-        # MP inference
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_rgb.flags.writeable = False
-        results = self.holistic.process(img_rgb)
+        results = holistic_model.process(img_rgb)
         img_rgb.flags.writeable = True
         img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-        # Face / mouth / eyes
+        currentTime = time.time()
+        delta_time = currentTime - self.previousTime if self.previousTime != 0 else 0.033  # Assume ~30 FPS if no previous time
+        self.previousTime = currentTime
+        fps = 1 / delta_time if delta_time > 0 else 0
+
         if not results.face_landmarks:
             cv2.putText(img, "No User Detected", (10, 180), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
         else:
-            # Draw face mesh contours
             mp_drawing.draw_landmarks(
                 img,
                 results.face_landmarks,
@@ -135,52 +139,45 @@ class VideoProcessor(VideoProcessorBase):
                 mp_drawing.DrawingSpec(color=(0, 255, 255), thickness=1, circle_radius=1)
             )
 
-            # Yawn -> increase counter
-            mar = calculate_mouth_aspect_ratio(results.face_landmarks.landmark)
-            yawn_detected = mar > (BASE_YAWN_THRESHOLD / YAWN_SENSITIVITY)
+            mouth_aspect_ratio = calculate_mouth_aspect_ratio(results.face_landmarks.landmark)
+            yawn_detected = mouth_aspect_ratio > (BASE_YAWN_THRESHOLD / YAWN_SENSITIVITY)
             if yawn_detected:
                 cv2.putText(img, "Yawn Detected!", (10, 120), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
                 self.drowsiness_counter = min(max_drowsiness, self.drowsiness_counter + increment_rate_yawn * delta_time)
 
-            # Eyes -> EAR
-            left_ear = calculate_eye_aspect_ratio(results.face_landmarks.landmark, LEFT_EYE_INDICES)
-            right_ear = calculate_eye_aspect_ratio(results.face_landmarks.landmark, RIGHT_EYE_INDICES)
-            eyes_closed = (left_ear < EAR_THRESHOLD) or (right_ear < EAR_THRESHOLD)
-
+            left_eye_ear = calculate_eye_aspect_ratio(results.face_landmarks.landmark, LEFT_EYE_INDICES)
+            right_eye_ear = calculate_eye_aspect_ratio(results.face_landmarks.landmark, RIGHT_EYE_INDICES)
+            eyes_closed = left_eye_ear < EAR_THRESHOLD or right_eye_ear < EAR_THRESHOLD
             if eyes_closed:
                 if self.eye_closed_time == 0:
                     self.eye_closed_time = time.time()
                 self.drowsiness_counter = min(max_drowsiness, self.drowsiness_counter + increment_rate_eye * delta_time)
-
-                # Start countdown if eyes closed for > 1.5s
                 if time.time() - self.eye_closed_time > 1.5 and not self.countdown_active:
                     self.countdown_start_time = time.time()
                     self.countdown_active = True
             else:
-                self.eye_closed_time = 0.0
+                self.eye_closed_time = 0
                 self.countdown_active = False
                 if self.allow_decrement and self.drowsiness_counter > 0:
-                    self.drowsiness_counter = max(0.0, self.drowsiness_counter - decrement_rate * delta_time)
+                    self.drowsiness_counter = max(0, self.drowsiness_counter - decrement_rate * delta_time)
 
-            # Lock at max until OK gesture reset allowed
             if self.drowsiness_counter >= max_drowsiness:
                 self.allow_decrement = False
 
-            # Countdown overlay & trigger
             if self.countdown_active:
-                elapsed = time.time() - self.countdown_start_time
-                remaining = max(0, countdown_duration - elapsed)
-                cv2.putText(img, f"Countdown: {int(remaining)}s", (10, 150),
-                            cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
-                if remaining == 0:
-                    if eyes_closed and not self.action_triggered:
-                        print("Action Triggered!")
-                        self.action_triggered = True
+                elapsed_time = time.time() - self.countdown_start_time
+                remaining_time = max(0, countdown_duration - elapsed_time)
+                cv2.putText(img, f"Countdown: {int(remaining_time)}s", (10, 150), cv2.FONT_HERSHEY_COMPLEX, 1,
+                            (0, 0, 255), 2)
+                if remaining_time == 0:
+                    if eyes_closed:
+                        if not self.action_triggered:
+                            print("Action Triggered!")
+                            self.action_triggered = True
                     self.countdown_active = False
             else:
                 self.action_triggered = False
 
-            # Status UI
             counter_color = (0, 255, 0)
             if self.drowsiness_counter >= max_drowsiness:
                 counter_color = (0, 0, 255)
@@ -188,46 +185,41 @@ class VideoProcessor(VideoProcessorBase):
                             cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
             elif self.drowsiness_counter > 75:
                 counter_color = (0, 0, 255)
-                cv2.putText(img, "CAUTION: PULL OVER", (10, 180),
-                            cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
+                cv2.putText(img, "CAUTION: PULL OVER", (10, 180), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255), 2)
             elif self.drowsiness_counter > 50:
                 counter_color = (0, 255, 255)
 
             cv2.putText(img, f"Drowsiness: {int(self.drowsiness_counter)}", (550, 30),
                         cv2.FONT_HERSHEY_COMPLEX, 1, counter_color, 2)
 
-        # Max state: watch for OK gesture to reset
         if self.drowsiness_counter >= max_drowsiness:
             ok_detected = (detect_ok_gesture(results.left_hand_landmarks) or
-                           detect_ok_gesture(results.right_hand_landmarks))
+                          detect_ok_gesture(results.right_hand_landmarks))
             if ok_detected:
                 if self.ok_gesture_start_time == 0:
                     self.ok_gesture_start_time = time.time()
                 elif time.time() - self.ok_gesture_start_time >= ok_gesture_duration:
                     self.warning_count += 1
-                    self.drowsiness_counter = 0.0
+                    self.drowsiness_counter = 0
                     self.allow_decrement = True
-                    self.ok_gesture_start_time = 0.0
-                    cv2.putText(img, f"Warning {self.warning_count}", (10, 210),
-                                cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                    self.ok_gesture_start_time = 0
+                    cv2.putText(img, f"Warning {self.warning_count}", (10, 210), cv2.FONT_HERSHEY_COMPLEX, 1,
+                                (0, 255, 0), 2)
             else:
-                self.ok_gesture_start_time = 0.0
+                self.ok_gesture_start_time = 0
             if ok_detected:
-                cv2.putText(img, "OK Gesture Detected", (10, 240),
-                            cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+                cv2.putText(img, "OK Gesture Detected", (10, 240), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
 
-        # Draw hands if present
         if results.right_hand_landmarks:
             mp_drawing.draw_landmarks(img, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
         if results.left_hand_landmarks:
             mp_drawing.draw_landmarks(img, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
 
-        # FPS overlay
         cv2.putText(img, f"{int(fps)} FPS", (10, 70), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
 
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+        return img
 
-# ---------- Streamlit UI ----------
+# Streamlit app
 st.title("DrowsyGuard")
 
 # Startup screen
@@ -258,8 +250,4 @@ mesh_placeholder.empty()
 
 # WebRTC streamer for real-time video processing
 RTC_CONFIGURATION = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
-webrtc_streamer(
-    key="drowsyguard",
-    video_processor_factory=VideoProcessor,   # <-- updated
-    rtc_configuration=RTC_CONFIGURATION
-)
+webrtc_streamer(key="drowsyguard", video_transformer_factory=VideoTransformer, rtc_configuration=RTC_CONFIGURATION)
