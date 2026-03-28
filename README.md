@@ -102,4 +102,4 @@ Inspired by the need for real-time alertness monitoring.
 This is built by Sivansh Gupta for his idea, DrowsyGuard (documentation of which can be found at his LinkedIn at https://www.linkedin.com/posts/sivansh-gupta_documentation-activity-7333111236601036800-c_zP?utm_source=share&utm_medium=member_desktop&rcm=ACoAADzdHEABAQR3EpOwNY7FWYUWTtAKqS5ESVI)
 
 ## Contact
-For questions or support, open an issue in this repository or contact the maintainer at drowsguard.technologies@gmail.com.
+For questions or support, open an issue in this repository or contact the maintainer at drowsguard.technologies@gmail.com and  sivgupta.dbpc@gmail.com.
